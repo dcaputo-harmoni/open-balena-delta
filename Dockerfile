@@ -12,6 +12,8 @@ RUN ./run build-small-static-exe
 
 FROM debian:bookworm
 
+EXPOSE 80
+
 RUN apt-get update && apt-get install -y nodejs npm buildah
 
 WORKDIR /usr/src/app
