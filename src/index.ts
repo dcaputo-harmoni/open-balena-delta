@@ -12,6 +12,7 @@ async function createHttpServer(listenPort: number) {
   app.use(bodyParser.json());
 
   app.get('/api/v3/delta', (req, res) => {
+    console.log(req);
     const { src, dest } = req.query;
     const auth = req.headers.authorization?.split(' ')?.[1];
     if (!src || !dest || !auth) {
@@ -20,7 +21,7 @@ async function createHttpServer(listenPort: number) {
         message: 'src and dest url params, and auth header, must be provided',
       });
     }
-    const registry = process.env.OPEN_BALENA_REGISTRY;
+    const registry = process.env.REGISTRY_HOST;
     if (!registry) {
       return res.json({ success: false, message: 'registry not configured!' });
     }
