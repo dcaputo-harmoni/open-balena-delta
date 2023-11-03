@@ -1,4 +1,4 @@
-FROM debian:bookworm as build
+FROM debian:sid as build
 
 RUN apt-get update && apt-get install -y git cargo libclang-dev
 
@@ -10,7 +10,9 @@ WORKDIR /usr/src/app/deltaimage
 
 RUN ./run build-small-static-exe
 
-FROM debian:bookworm
+# Note we are using sid for buildah 1.32 which supports auth on manifest inspect
+# Once trixie is finalized we can move to stable
+FROM debian:sid
 
 EXPOSE 80
 
