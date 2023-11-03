@@ -132,7 +132,7 @@ async function createHttpServer(listenPort: number) {
     }
 
     // Delete temp or build directory and all contents
-    if (!DEBUG && workdir && fs.existsSync(workdir))
+    if (workdir && fs.existsSync(workdir))
       fs.rmSync(workdir, { recursive: true });
 
     // Respond with result
