@@ -33,14 +33,13 @@ async function createHttpServer(listenPort: number) {
 
       // Determine delta image tag
       const srcId = /^(.*)?\/v[0-9]+\/([0-9a-f]+)$/.exec(src as string)?.[2];
-      const deltatag = `delta-${srcId}`;
+      const deltatag = `delta-${srcId?.substring(0, 16)}`;
       const deltaimg = `${dest}:${deltatag}`;
       const deltaimgId = /^(.*)?\/v[0-9]+\/([0-9a-f]+)$/.exec(deltaimg)?.[2];
 
       // Pull environment variables
       const registry = process.env.REGISTRY_HOST;
-      const user = process.env.BALENAOS_USERNAME;
-      const pass = process.env.BALENAOS_APIKEY;
+      const builderToken = process.env.TOKEN_AUTH_BUILDER_TOKEN;
 
       // Determine folders to work in
       const uuid = crypto.randomUUID();
@@ -53,7 +52,7 @@ async function createHttpServer(listenPort: number) {
 
       // Authenticate with registry and create auth.json
       exec(
-        `buildah login --authfile ${tmpWorkdir}/auth.json -u ${user} -p ${pass} ${registry}`
+        `buildah login --authfile ${tmpWorkdir}/auth.json -u builder -p ${builderToken} ${registry}`
       );
 
       // Check if we are currently building delta image in a parallel process, if so, wait until complete
