@@ -1,7 +1,6 @@
 #!/bin/sh
 
-# Launch docker daemon (necessary because we are overriding the dind entrypoint)
-docker-entrypoint.sh dockerd &
+balena-engine-daemon &
 
 node dist/index.js &
 
