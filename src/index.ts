@@ -17,6 +17,7 @@ const deltaRsyncPath = '/delta-rsync';
 const balenaTld = String(process.env.BALENA_TLD);
 const regHost = String(process.env.REGISTRY_HOST ?? `registry.${balenaTld}`);
 const builderToken = String(process.env.TOKEN_AUTH_BUILDER_TOKEN);
+const jwtAlgo = String(process.env.JWT_ALGO ?? 'ES256');
 const jwtSecret = String(process.env.JWT_SECRET);
 
 // Authentication settings for dockerode
@@ -126,7 +127,7 @@ async function createHttpServer(listenPort: number) {
         req.query.dest,
         req.headers.authorization
       );
-      jwt.verify(token, jwtSecret);
+      jwt.verify(token, jwtSecret, jwtAlgo);
 
       const { deltaBase, delta } = parseDeltaParams(src, dest);
 
@@ -218,7 +219,7 @@ async function createHttpServer(listenPort: number) {
         res.send(JSON.stringify({ name: delta }));
       }
     } catch (err) {
-      log(`V3 delta error: ${err.message}}`);
+      log(`V3 delta error: ${err.message}`);
       res.sendStatus(400);
       // Remove building file
       if (buildingFile && fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
@@ -236,7 +237,7 @@ async function createHttpServer(listenPort: number) {
         req.query.dest,
         req.headers.authorization
       );
-      jwt.verify(token, jwtSecret);
+      jwt.verify(token, jwtSecret, jwtAlgo);
 
       const { deltaBase } = parseDeltaParams(src, dest);
 
@@ -288,7 +289,7 @@ async function createHttpServer(listenPort: number) {
         res.set('location', downloadUrl);
       }
     } catch (err) {
-      log(`V2 delta error: ${err.message}}`);
+      log(`V2 delta error: ${err.message}`);
       res.sendStatus(400);
       // Remove building file
       if (buildingFile && fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
