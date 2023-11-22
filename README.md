@@ -36,6 +36,25 @@ Hostnames:
 ## Limitations and Known Issues
 - Token authentication still needs to be implemented
 
+## Integration
+To integrate `open-balena-delta` in your `open-balena` environment, you will need to make some configuration changes as outlined below.  If you utilize the `open-balena-helm` scripts, this will be handled for you.  Below is a summary of what needs to be done.
+
+### Changes to `open-balena-api`
+You will need to add an the following environment variable to your `open-balena-api` container:
+
+- ***DELTA_HOST***: The hostname of your `open-balena-delta` instance, i.e. delta.openbalena.<yourdomain.com>
+
+### Fleet / device config variables
+There are two config variables that need to be added to your fleet (to apply to all devices in the fleet) or device (to apply only to one device):
+
+- ***BALENA_SUPERVISOR_DELTA***: Set this to 1
+- ***BALENA_SUPERVISOR_DELTA_VERSION***: You likely want to set this to 3 (to use balena-engine delta updates), but for older devices you will need to set it to 2 (to use rsync delta updates)
+
+### Device config.json changes
+You will need to add a parameter to config.json on devices that will be paritcipating in delta updates:
+
+- ***deltaEndpoint***: The hostname of your `open-balena-delta` instance, i.e. delta.openbalena.<yourdomain.com>
+
 ## Credits
 
 - Major kudos to the balena team for developing [balena-engine](https://github.com/balena-os/balena-engine), an amazing tool that improves on docker specifically for embedded and IoT use cases
