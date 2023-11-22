@@ -6,6 +6,7 @@ import { once } from 'events';
 import dockerDelta = require('docker-delta');
 import Docker = require('dockerode');
 import * as dt from 'docker-toolbelt';
+import jwt from 'njwt';
 
 const PORT = 80;
 const DEBUG = true;
@@ -16,6 +17,7 @@ const deltaRsyncPath = '/delta-rsync';
 const balenaTld = String(process.env.BALENA_TLD);
 const regHost = String(process.env.REGISTRY_HOST ?? `registry.${balenaTld}`);
 const builderToken = String(process.env.TOKEN_AUTH_BUILDER_TOKEN);
+const jwtSecret = String(process.env.JWT_SECRET);
 
 // Authentication settings for dockerode
 const authOpts = {
@@ -43,14 +45,14 @@ const log = (msg: string) => {
 };
 
 // Heper function to parse query params
-const parseQueryParams = (srcParam: any, destParam: any, jwtHeader: any) => {
+const parseQueryParams = (srcParam: any, destParam: any, authHeader: any) => {
   // src = old image which we are transitioning from
   // dest = new image which we are transitioning to
   log(
     `Parsing delta params: ${JSON.stringify({
       srcParam,
       destParam,
-      jwtHeader,
+      authHeader,
     })}`
   );
   if (!srcParam || !destParam)
@@ -58,9 +60,9 @@ const parseQueryParams = (srcParam: any, destParam: any, jwtHeader: any) => {
   const src = String(srcParam);
   const dest = String(destParam);
   // Parse input params
-  const jwt = jwtHeader?.split(' ')?.[1];
-  if (!jwt) throw new Error('authorization header must be provided');
-  return { src, dest, jwt };
+  const token = authHeader?.split(' ')?.[1];
+  if (!token) throw new Error('authorization header must be provided');
+  return { src, dest, token };
 };
 
 // Helper function to parse image tags into delta image tag and path
@@ -119,11 +121,13 @@ async function createHttpServer(listenPort: number) {
     log('V3 delta request received');
 
     try {
-      const { src, dest } = parseQueryParams(
+      const { src, dest, token } = parseQueryParams(
         req.query.src,
         req.query.dest,
         req.headers.authorization
       );
+      jwt.verify(token, jwtSecret);
+
       const { deltaBase, delta } = parseDeltaParams(src, dest);
 
       buildingFile = `/tmp/${deltaBase}`;
@@ -227,11 +231,13 @@ async function createHttpServer(listenPort: number) {
     log('V2 delta request received');
 
     try {
-      const { src, dest } = parseQueryParams(
+      const { src, dest, token } = parseQueryParams(
         req.query.src,
         req.query.dest,
         req.headers.authorization
       );
+      jwt.verify(token, jwtSecret);
+
       const { deltaBase } = parseDeltaParams(src, dest);
 
       buildingFile = `/tmp/${deltaBase}`;

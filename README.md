@@ -33,9 +33,6 @@ Hostnames:
 
 - **delta.<yourdomain.com>**: IP address / hostname of `open-balena-haproxy`
 
-## Limitations and Known Issues
-- Token authentication still needs to be implemented
-
 ## Integration
 To integrate `open-balena-delta` in your `open-balena` environment, you will need to make some configuration changes as outlined below.  If you utilize the `open-balena-helm` scripts, this will be handled for you.  Below is a summary of what needs to be done.
 
@@ -54,6 +51,9 @@ There are two config variables that need to be added to your fleet (to apply to 
 You will need to add a parameter to config.json on devices that will be paritcipating in delta updates:
 
 - ***deltaEndpoint***: The hostname of your `open-balena-delta` instance, i.e. delta.openbalena.<yourdomain.com>
+
+## Limitations and Known Issues
+- Needs some form of authentication for rsync download endpoint
 
 ## Credits
 
