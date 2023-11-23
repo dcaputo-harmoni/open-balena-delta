@@ -33,6 +33,10 @@ Hostnames:
 
 - **delta.<yourdomain.com>**: IP address / hostname of `open-balena-haproxy`
 
+Certificates:
+
+If you want to enable authentication (i.e. only accept incoming delta requests from authenticated devices) you will need to include the `open-balena-api` public key certificate (which is used for JWT signing) in the `open-balena-delta` container, stored at /certs/private/api.<BALENA_TLD>.pem.  If you don't provide this file, authentication will be automatically disabled.
+
 ## Integration
 To integrate `open-balena-delta` in your `open-balena` environment, you will need to make some configuration changes as outlined below.  If you utilize the `open-balena-helm` scripts, this will be handled for you.  Below is a summary of what needs to be done.
 
