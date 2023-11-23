@@ -6,7 +6,7 @@ import { once } from 'events';
 import dockerDelta = require('docker-delta');
 import Docker = require('dockerode');
 import * as dt from 'docker-toolbelt';
-import jwt from 'njwt';
+import * as jwt from 'jsonwebtoken';
 
 const PORT = 80;
 const DEBUG = true;
@@ -17,8 +17,16 @@ const deltaRsyncPath = '/delta-rsync';
 const balenaTld = String(process.env.BALENA_TLD);
 const regHost = String(process.env.REGISTRY_HOST ?? `registry.${balenaTld}`);
 const builderToken = String(process.env.TOKEN_AUTH_BUILDER_TOKEN);
-const jwtAlgo = String(process.env.JWT_ALGO ?? 'ES256');
-const jwtSecret = String(process.env.JWT_SECRET);
+
+// Load public certificate and enable authentication
+const alg = (process.env.JWT_ALGO ?? 'ES256') as jwt.Algorithm;
+const pubFile = `/certs/private/api.${balenaTld}.pem`;
+let pub: Buffer;
+let authEnabled = false;
+if (fs.existsSync(pubFile)) {
+  authEnabled = true;
+  pub = fs.readFileSync(pubFile);
+}
 
 // Authentication settings for dockerode
 const authOpts = {
@@ -127,7 +135,10 @@ async function createHttpServer(listenPort: number) {
         req.query.dest,
         req.headers.authorization
       );
-      jwt.verify(token, jwtSecret, jwtAlgo);
+
+      if (authEnabled) {
+        jwt.verify(token, pub, { algorithms: [alg] });
+      }
 
       const { deltaBase, delta } = parseDeltaParams(src, dest);
 
@@ -237,7 +248,10 @@ async function createHttpServer(listenPort: number) {
         req.query.dest,
         req.headers.authorization
       );
-      jwt.verify(token, jwtSecret, jwtAlgo);
+
+      if (authEnabled) {
+        jwt.verify(token, pub, { algorithms: [alg] });
+      }
 
       const { deltaBase } = parseDeltaParams(src, dest);
 
