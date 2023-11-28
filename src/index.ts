@@ -54,24 +54,19 @@ const log = (msg: string) => {
 };
 
 // Heper function to parse query params
-const parseQueryParams = (srcParam: any, destParam: any, authHeader: any) => {
+const parseQueryParams = (query: any, headers: any) => {
   // src = old image which we are transitioning from
   // dest = new image which we are transitioning to
-  log(
-    `Parsing delta params: ${JSON.stringify({
-      srcParam,
-      destParam,
-      authHeader,
-    })}`
-  );
-  if (!srcParam || !destParam)
+  log(`Parsing delta params: ${JSON.stringify({ query, headers })}`);
+  if (!query.src || !query.dest)
     throw new Error('src and dest url params must be provided');
-  const src = String(srcParam);
-  const dest = String(destParam);
+  const src = String(query.src);
+  const dest = String(query.dest);
   // Parse input params
-  const token = authHeader?.split(' ')?.[1];
+  const token = headers.authorization?.split(' ')?.[1];
   if (!token) throw new Error('authorization header must be provided');
-  return { src, dest, token };
+  const wait = query.wait === 'true';
+  return { src, dest, token, wait };
 };
 
 // Helper function to parse image tags into delta image tag and path
@@ -110,16 +105,34 @@ const waitForStream = async (stream: NodeJS.ReadableStream) => {
 };
 
 // Helper function to handle detection of concurrent delta processes
-const building = async (buildingFile: string, retryDelay = 0) => {
-  if (fs.existsSync(buildingFile)) {
-    // Give it another try (we have a 59 second timeout in supervisor)
-    await new Promise((resolve) => setTimeout(resolve, retryDelay * 1000));
-    if (retryDelay === 0 || fs.existsSync(buildingFile)) {
-      if (DEBUG) log(`Backing off client due to in-process delta`);
-      return true;
+const building = async (buildingFile: string, retryDelay: number) => {
+  let buildingNow = fs.existsSync(buildingFile);
+  if (buildingNow) {
+    let waitTime = 0;
+    const waitASec = () => new Promise((resolve) => setTimeout(resolve, 1000));
+    while (buildingNow && waitTime < retryDelay) {
+      await waitASec();
+      waitTime += 1;
+      buildingNow = fs.existsSync(buildingFile);
     }
   }
-  return false;
+  return buildingNow;
+};
+
+// Helper function to check if image exists in registry using manifest inspect
+const deltaExists = async (delta: string) => {
+  const tmpWorkdir = `/tmp/${crypto.randomUUID()}`;
+  fs.mkdirSync(`${tmpWorkdir}/.docker`, { recursive: true });
+  fs.writeFileSync(`${tmpWorkdir}/.docker/config.json`, authFile);
+  const inspectStream = spawn('docker', ['manifest', 'inspect', delta], {
+    cwd: tmpWorkdir,
+    env: {
+      DOCKER_CONFIG: `${tmpWorkdir}/.docker`,
+    },
+  });
+  const exists = (await once(inspectStream, 'close'))?.[0] === 0;
+  fs.rmSync(tmpWorkdir, { recursive: true });
+  return exists;
 };
 
 async function createHttpServer(listenPort: number) {
@@ -130,10 +143,9 @@ async function createHttpServer(listenPort: number) {
     log('V3 delta request received');
 
     try {
-      const { src, dest, token } = parseQueryParams(
-        req.query.src,
-        req.query.dest,
-        req.headers.authorization
+      const { src, dest, token, wait } = parseQueryParams(
+        req.query,
+        req.headers
       );
 
       if (authEnabled) {
@@ -144,90 +156,92 @@ async function createHttpServer(listenPort: number) {
 
       buildingFile = `/tmp/${deltaBase}`;
 
-      // Check if we are currently building delta image in a parallel process
-      if ((await building(buildingFile, 45)) === true) {
+      // Check if someone is building delta image in a parallel process
+      if (await building(buildingFile, wait ? 15 * 60 : 45)) {
+        if (wait) throw new Error('Delta image failed to build!');
+        // send 504 if not waiting for build to complete
         res.sendStatus(504);
         return;
       }
 
-      // Check if image exists in registry using manifest inspect (not available in dockerode)
-      const tmpWorkdir = `/tmp/${crypto.randomUUID()}`;
-      fs.mkdirSync(`${tmpWorkdir}/.docker`, { recursive: true });
-      fs.writeFileSync(`${tmpWorkdir}/.docker/config.json`, authFile);
-      const inspectStream = spawn('docker', ['manifest', 'inspect', delta], {
-        cwd: tmpWorkdir,
-        env: {
-          DOCKER_CONFIG: `${tmpWorkdir}/.docker`,
-        },
-      });
-      const exists = (await once(inspectStream, 'close'))?.[0] === 0;
-      fs.rmSync(tmpWorkdir, { recursive: true });
-
-      // Build delta image only if it doesn't already exist in the registry
-      if (!exists) {
-        // Send 504, which informs supervisor that delta is in process
-        res.sendStatus(504);
-
-        // Make sure someone else didn't start building delta image while we checked for existence
-        if ((await building(buildingFile, 0)) === true) return;
-
-        // touch building file to indicate that we are currently building delta image
-        fs.closeSync(fs.openSync(buildingFile, 'w'));
-
-        // Continue executing delta process in background
-        const srcStream = await docker.pull(src, authOpts);
-        const destStream = await docker.pull(dest, authOpts);
-        await Promise.all([
-          waitForStream(srcStream),
-          waitForStream(destStream),
-        ]);
-
-        // Create delta image
-        const deltaStream = await dt.createDelta(docker, {
-          src,
-          dest,
-        });
-        if (DEBUG) deltaStream.pipe(process.stdout);
-        const deltaId = await new Promise<string>((resolve, reject) => {
-          let imageId: string;
-          docker.modem.followProgress(
-            deltaStream,
-            (e) => {
-              if (e) return reject(e);
-              if (!imageId) {
-                return reject(new Error('Failed to parse delta image ID!'));
-              }
-              resolve(imageId);
-            },
-            (e) => {
-              const match = /^Created delta: (sha256:\w+)$/.exec(e.status);
-              if (match && !imageId) imageId = match[1];
-            }
-          );
-        });
-
-        // Tag delta image
-        await docker.getImage(deltaId).tag({
-          repo: delta.split(':')[0],
-          tag: delta.split(':')[1],
-        });
-
-        // Push delta image
-        const pushStream = await docker.getImage(delta).push(authOpts);
-        await waitForStream(pushStream);
-
-        // Remove delta image (not needed)
-        await docker.getImage(delta).remove(authOpts);
-
-        // Consider removing src and dest images
-
-        // Remove building file
-        if (fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
-      } else {
-        // If delta image exists, return it
-        log(`V3 delta image being sent to device: ${delta}`);
+      const success = () => {
+        log(`Sending image name in response body: { name: "${delta}"}`);
         res.set('content-type', 'text/plain');
         res.send(JSON.stringify({ name: delta }));
+      };
+
+      // Return delta image if it exists
+      if (await deltaExists(delta)) {
+        success();
+      } else {
+        // If delta doesn't exist, send 504 (but keep building)
+        if (!wait) res.sendStatus(504);
+
+        // Check again if someone started building delta image in a parallel process
+        if (!(await building(buildingFile, wait ? 15 * 60 : 0))) {
+          // touch building file to indicate that we are currently building delta image
+          fs.closeSync(fs.openSync(buildingFile, 'w'));
+
+          // Continue executing delta process in background
+          const srcStream = await docker.pull(src, authOpts);
+          const destStream = await docker.pull(dest, authOpts);
+          await Promise.all([
+            waitForStream(srcStream),
+            waitForStream(destStream),
+          ]);
+
+          // Create delta image
+          const deltaStream = await dt.createDelta(docker, {
+            src,
+            dest,
+          });
+          if (DEBUG) deltaStream.pipe(process.stdout);
+          const deltaId = await new Promise<string>((resolve, reject) => {
+            let imageId: string;
+            docker.modem.followProgress(
+              deltaStream,
+              (e) => {
+                if (e) return reject(e);
+                if (!imageId) {
+                  return reject(new Error('Failed to parse delta image ID!'));
+                }
+                resolve(imageId);
+              },
+              (e) => {
+                const match = /^Created delta: (sha256:\w+)$/.exec(e.status);
+                if (match && !imageId) imageId = match[1];
+              }
+            );
+          });
+
+          // Tag delta image
+          await docker.getImage(deltaId).tag({
+            repo: delta.split(':')[0],
+            tag: delta.split(':')[1],
+          });
+
+          // Push delta image
+          const pushStream = await docker.getImage(delta).push(authOpts);
+          await waitForStream(pushStream);
+
+          // Remove delta image (not needed)
+          await docker.getImage(delta).remove(authOpts);
+
+          // Consider removing src and dest images
+
+          // Remove building file
+          if (fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
+
+          // If we are waiting, and we got to this point, delta image was built successfully
+          if (wait) success();
+        } else if (wait) {
+          // Parallel build was started, and we waited 15 minutes, so check again if build was successful
+          if (await deltaExists(delta)) {
+            success();
+          } else {
+            throw new Error('Delta image failed to build!');
+          }
+        }
       }
     } catch (err) {
       log(`V3 delta error: ${err.message}`);
@@ -243,10 +257,9 @@ async function createHttpServer(listenPort: number) {
     log('V2 delta request received');
 
     try {
-      const { src, dest, token } = parseQueryParams(
-        req.query.src,
-        req.query.dest,
-        req.headers.authorization
+      const { src, dest, token, wait } = parseQueryParams(
+        req.query,
+        req.headers
       );
 
       if (authEnabled) {
@@ -258,49 +271,65 @@ async function createHttpServer(listenPort: number) {
       buildingFile = `/tmp/${deltaBase}`;
 
       // Check if we are currently building delta image in a parallel process
-      if ((await building(buildingFile, 45)) === true) {
+      if (await building(buildingFile, wait ? 15 * 60 : 45)) {
+        if (wait) throw new Error('Delta image failed to build!');
+        // send 504 if not waiting for build to complete
         res.sendStatus(504);
         return;
       }
 
-      // Build delta rsync only if it doesn't already exist
-      if (!fs.existsSync(`${deltaRsyncPath}/${deltaBase}`)) {
-        // Send 504, which informs supervisor that delta is in process
-        res.sendStatus(504);
-
-        // Make sure someone else didn't start building delta image while we checked for existence
-        if ((await building(buildingFile, 0)) === true) return;
-
-        // touch building file to indicate that we are currently building delta image
-        fs.closeSync(fs.openSync(buildingFile, 'w'));
-
-        // Continue executing delta process in background
-        const srcStream = await docker.pull(src, authOpts);
-        const destStream = await docker.pull(dest, authOpts);
-        await Promise.all([
-          waitForStream(srcStream),
-          waitForStream(destStream),
-        ]);
-
-        // Create rsync delta file
-        const deltaStream = dockerDelta
-          .createDelta(src, dest, true, { log: console.log })
-          .pipe(fs.createWriteStream(buildingFile));
-        await once(deltaStream, 'finish');
-
-        // Copy rsync delta file to rsync path
-        fs.cpSync(buildingFile, `${deltaRsyncPath}/${deltaBase}`);
-
-        // Consider removing src and dest images
-
-        // Remove building file
-        if (fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
-      } else {
+      const success = () => {
         const downloadUrl = `https://${req.hostname}/api/v2/delta/download?delta=${deltaBase}`;
         log(`Sending download url via location header: ${downloadUrl}`);
         // Set status to 300, which informs supervisor that delta is ready
         res.status(300);
         res.set('location', downloadUrl);
+      };
+
+      // Return delta image if it exists
+      if (fs.existsSync(`${deltaRsyncPath}/${deltaBase}`)) {
+        success();
+      } else {
+        // Send 504, which informs supervisor that delta is in process
+        if (!wait) res.sendStatus(504);
+
+        // Make sure someone else didn't start building delta image while we checked for existence
+        if (!(await building(buildingFile, wait ? 15 * 60 : 0))) {
+          // touch building file to indicate that we are currently building delta image
+          fs.closeSync(fs.openSync(buildingFile, 'w'));
+
+          // Continue executing delta process in background
+          const srcStream = await docker.pull(src, authOpts);
+          const destStream = await docker.pull(dest, authOpts);
+          await Promise.all([
+            waitForStream(srcStream),
+            waitForStream(destStream),
+          ]);
+
+          // Create rsync delta file
+          const deltaStream = dockerDelta
+            .createDelta(src, dest, true, { log: console.log })
+            .pipe(fs.createWriteStream(buildingFile));
+          await once(deltaStream, 'finish');
+
+          // Copy rsync delta file to rsync path
+          fs.cpSync(buildingFile, `${deltaRsyncPath}/${deltaBase}`);
+
+          // Consider removing src and dest images
+
+          // Remove building file
+          if (fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
+
+          // If we are waiting, and we got to this point, delta image was built successfully
+          if (wait) success();
+        } else if (wait) {
+          // Parallel build was started, and we waited 15 minutes, so check again if build was successful
+          if (fs.existsSync(`${deltaRsyncPath}/${deltaBase}`)) {
+            success();
+          } else {
+            throw new Error('Delta image failed to build!');
+          }
+        }
       }
     } catch (err) {
       log(`V2 delta error: ${err.message}`);
