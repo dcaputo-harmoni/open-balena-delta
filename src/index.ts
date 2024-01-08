@@ -64,7 +64,6 @@ const parseQueryParams = (query: any, headers: any) => {
   const dest = String(query.dest);
   // Parse input params
   const token = headers.authorization?.split(' ')?.[1];
-  if (!token) throw new Error('authorization header must be provided');
   const wait = query.wait === 'true';
   return { src, dest, token, wait };
 };
@@ -149,6 +148,9 @@ async function createHttpServer(listenPort: number) {
       );
 
       if (authEnabled) {
+        if (!token) {
+          throw new Error('authorization header must be provided');
+        }
         jwt.verify(token, pub, { algorithms: [alg] });
       }
 
@@ -263,6 +265,9 @@ async function createHttpServer(listenPort: number) {
       );
 
       if (authEnabled) {
+        if (!token) {
+          throw new Error('authorization header must be provided');
+        }
         jwt.verify(token, pub, { algorithms: [alg] });
       }
 
