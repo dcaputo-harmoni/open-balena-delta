@@ -57,8 +57,9 @@ You will need to add a parameter to config.json on devices that will be paritcip
 - ***deltaEndpoint***: The hostname of your `open-balena-delta` instance, i.e. delta.openbalena.<yourdomain.com>
 
 ## Limitations and Known Issues
-- Needs some form of authentication for rsync download endpoint
+- When base images change, i.e. if the `balenalib/raspberrypi4-64-debian:bookworm` tag is pointed to a new build, delta updates will not work as expected per [this thread](https://forums.balena.io/t/jetson-nano-emmc-fails-to-update-with-a-small-delta/366081) which is a known limitation of `balena-engine`.  In this scenario, devices will download new base images and new layers, even if the delta changes are minimal.  Recommend pinning your base images to hashes instead of tags to avoid this behavior, otherwise ensure that devices have sufficient storage capacity to handle 2x your app stack.  Alternatively, per the thread above, you can run a "delete then download" update if devices are storage constrained.
+- Needs some form of authentication for rsync download endpoint.
 
 ## Credits
 
-- Major kudos to the balena team for developing [balena-engine](https://github.com/balena-os/balena-engine), an amazing tool that improves on docker specifically for embedded and IoT use cases
+- Major kudos to the balena team for developing [balena-engine](https://github.com/balena-os/balena-engine), an amazing tool that improves on docker specifically for embedded and IoT use cases.
