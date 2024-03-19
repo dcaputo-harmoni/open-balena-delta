@@ -194,37 +194,15 @@ async function createHttpServer(listenPort: number) {
           const deltaStream = await dt.createDelta(docker, {
             src,
             dest,
-          });
-          if (DEBUG) deltaStream.pipe(process.stdout);
-          const deltaId = await new Promise<string>((resolve, reject) => {
-            let imageId: string;
-            docker.modem.followProgress(
-              deltaStream,
-              (e) => {
-                if (e) return reject(e);
-                if (!imageId) {
-                  return reject(new Error('Failed to parse delta image ID!'));
-                }
-                resolve(imageId);
-              },
-              (e) => {
-                const match = /^Created delta: (sha256:\w+)$/.exec(e.status);
-                if (match && !imageId) imageId = match[1];
-              }
-            );
-          });
-
-          // Tag delta image
-          await docker.getImage(deltaId).tag({
-            repo: delta.split(':')[0],
-            tag: delta.split(':')[1],
-          });
+            t: delta,
+          } as dt.CreateDeltaOptions);
+          await waitForStream(deltaStream);
 
           // Push delta image
           const pushStream = await docker.getImage(delta).push(authOpts);
           await waitForStream(pushStream);
 
-          // Remove delta image (not needed)
+          // Remove delta image to free up storage
           await docker.getImage(delta).remove(authOpts);
 
           // Consider removing src and dest images
