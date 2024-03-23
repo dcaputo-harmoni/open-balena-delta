@@ -223,7 +223,9 @@ async function createHttpServer(listenPort: number) {
       }
     } catch (err) {
       log(`V3 delta error: ${err.message}`);
-      res.sendStatus(400);
+      if (!res.headersSent && !res.writableEnded) {
+        res.sendStatus(400);
+      }
       // Remove building file
       if (buildingFile && fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
     }
@@ -311,7 +313,9 @@ async function createHttpServer(listenPort: number) {
       }
     } catch (err) {
       log(`V2 delta error: ${err.message}`);
-      res.sendStatus(400);
+      if (!res.headersSent && !res.writableEnded) {
+        res.sendStatus(400);
+      }
       // Remove building file
       if (buildingFile && fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
     }
