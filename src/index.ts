@@ -223,7 +223,15 @@ async function createHttpServer(listenPort: number) {
       }
     } catch (err) {
       log(`V3 delta error: ${err.message}`);
-      res.sendStatus(400);
+      if (!res.headersSent) {
+        res.sendStatus(400);
+      } else {
+        console.log(
+          `Build error occurred, but response was already sent: ${JSON.stringify(
+            err
+          )}`
+        );
+      }
       // Remove building file
       if (buildingFile && fs.existsSync(buildingFile)) fs.rmSync(buildingFile);
     }
