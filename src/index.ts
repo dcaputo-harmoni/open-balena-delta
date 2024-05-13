@@ -268,8 +268,8 @@ async function createHttpServer(listenPort: number) {
         const downloadUrl = `https://${req.hostname}/api/v2/delta/download?delta=${deltaBase}`;
         log(`Sending download url via location header: ${downloadUrl}`);
         // Set status to 300, which informs supervisor that delta is ready
-        res.status(300);
         res.set('location', downloadUrl);
+        res.sendStatus(300);
       };
 
       // Return delta image if it exists
